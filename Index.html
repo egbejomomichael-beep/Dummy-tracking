@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Dummy Tracking Number Generator</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:18px;background:#f7f7fb;color:#111}
+  h1{margin:0 0 8px}
+  .card{background:#fff;padding:14px;border-radius:10px;box-shadow:0 6px 18px rgba(15,20,40,0.06);max-width:900px}
+  label{display:block;margin-top:10px;font-weight:600}
+  select,input[type=number],input[type=text]{padding:8px;border-radius:6px;border:1px solid #ddd;width:100%;box-sizing:border-box}
+  button{margin-top:10px;padding:10px 12px;border:0;background:#0b74ff;color:#fff;border-radius:8px;cursor:pointer}
+  button.secondary{background:#2d2f37}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{padding:8px;border-bottom:1px solid #eee;text-align:left;font-family:monospace}
+  .small{font-size:12px;color:#666}
+  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Dummy Tracking Number Generator</h1>
+  <div class="small">Safe for testing, mockups and dev. Not real shipments.</div>
+
+  <label>Carrier</label>
+  <select id="carrier">
+    <option value="UPS">UPS (1Z...)</option>
+    <option value="FedEx12">FedEx (12 digits)</option>
+    <option value="FedEx15">FedEx (15 digits)</option>
+    <option value="FedEx20">FedEx (20 digits)</option>
+    <option value="DHL">DHL (10 digits)</option>
+    <option value="USPS">USPS (22 digits)</option>
+    <option value="S10">UPU S10 (e.g. RR123456785US)</option>
+  </select>
+
+  <label>How many to generate (1–1000)</label>
+  <input id="count" type="number" min="1" max="1000" value="10" />
+
+  <div id="s10Options" style="display:none">
+    <label>S10 Service code (2 letters, default RR)</label>
+    <input id="s10Service" type="text" maxlength="2" value="RR" />
+    <label>S10 Country code (2 letters, default US)</label>
+    <input id="s10Country" type="text" maxlength="2" value="US" />
+  </div>
+
+  <div class="actions">
+    <button id="genBtn">Generate</button>
+    <button id="copyAll" class="secondary">Copy All</button>
+    <button id="downloadCSV" class="secondary">Download CSV</button>
+  </div>
+
+  <table id="outTable" style="display:none">
+    <thead><tr><th>#</th><th>Tracking</th><th>Carrier</th><th>Action</th></tr></thead>
+    <tbody id="outBody"></tbody>
+  </table>
+</div>
+
+<script>
+/* ---------- Utility ---------- */
+const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const alnum = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+function randChar(set){ return set.charAt(Math.floor(Math.random()*set.length)); }
+function randDigits(n){ let s=''; for(let i=0;i<n;i++) s += Math.floor(Math.random()*10); return s; }
+function randAlphaNum(n){ let s=''; for(let i=0;i<n;i++) s += randChar(alnum); return s; }
+function pad(num, width){ return String(num).padStart(width,'0'); }
+
+/* ---------- S10 check-digit (UPU S10) ---------- 
+   Implementation uses weights [8,6,4,2,3,5,9,7] and:
+   C = 11 - (S mod 11); if C==10 -> 0; if C==11 -> 5
+   (per UPU S10 standard). */
+function s10CheckDigit(serial8){
+  const weights = [8,6,4,2,3,5,9,7];
+  const s = String(serial8).padStart(8,'0').split('').map(Number);
+  let sum = 0;
+  for(let i=0;i<8;i++) sum += s[i]*weights[i];
+  let c = 11 - (sum % 11);
+  if(c === 10) c = 0;
+  else if(c === 11) c = 5;
+  return String(c);
+}
+
+/* ---------- Generators ---------- */
+function genUPS(){
+  // '1Z' + 16 alnum => 18 chars total
+  return '1Z' + randAlphaNum(16);
+}
+
+function genFedEx(len){
+  // numeric lengths like 12/15/20
+  return randDigits(len);
+}
+
+function genDHL(){
+  return randDigits(10);
+}
+
+function genUSPS(){
+  // produce a 22-digit domestic-ish ID starting with '94' or '92' (common examples)
+  const prefix = Math.random() < 0.5 ? '94' : '92';
+  return prefix + randDigits(20);
+}
+
+function genS10(service, country){
+  service = (service||'RR').toUpperCase().replace(/[^A-Z]/g,'').padEnd(2,'R').slice(0,2);
+  country = (country||'US').toUpperCase().replace(/[^A-Z]/g,'').padEnd(2,'X').slice(0,2);
+  const serial = randDigits(8);
+  const cd = s10CheckDigit(serial);
+  return service + serial + cd + country;
+}
+
+/* ---------- UI ---------- */
+const carrierEl = document.getElementById('carrier');
+const s10Options = document.getElementById('s10Options');
+carrierEl.addEventListener('change', ()=>{
+  s10Options.style.display = carrierEl.value === 'S10' ? 'block' : 'none';
+});
+
+const outTable = document.getElementById('outTable');
+const outBody = document.getElementById('outBody');
+let lastResults = [];
+
+document.getElementById('genBtn').addEventListener('click', ()=>{
+  const carrier = carrierEl.value;
+  const count = Math.min(1000, Math.max(1, Number(document.getElementById('count').value||1)));
+  const results = [];
+  for(let i=0;i<count;i++){
+    if(carrier === 'UPS') results.push(genUPS());
+    else if(carrier === 'FedEx12') results.push(genFedEx(12));
+    else if(carrier === 'FedEx15') results.push(genFedEx(15));
+    else if(carrier === 'FedEx20') results.push(genFedEx(20));
+    else if(carrier === 'DHL') results.push(genDHL());
+    else if(carrier === 'USPS') results.push(genUSPS());
+    else if(carrier === 'S10') results.push(genS10(
+      document.getElementById('s10Service').value,
+      document.getElementById('s10Country').value
+    ));
+  }
+  lastResults = results.map(r => ({tracking:r, carrier: carrier.startsWith('FedEx') ? 'FedEx' : carrier}));
+  renderResults(lastResults);
+});
+
+function renderResults(arr){
+  outBody.innerHTML = '';
+  arr.forEach((row, idx)=>{
+    const tr = document.createElement('tr');
+    const idxTd = document.createElement('td'); idxTd.textContent = (idx+1);
+    const tTd = document.createElement('td'); tTd.textContent = row.tracking;
+    const cTd = document.createElement('td'); cTd.textContent = row.carrier;
+    const aTd = document.createElement('td');
+    const copyBtn = document.createElement('button'); copyBtn.textContent = 'Copy';
+    copyBtn.style.padding='6px 8px';
+    copyBtn.addEventListener('click', ()=>{ navigator.clipboard.writeText(row.tracking); copyBtn.textContent='Copied'; setTimeout(()=>copyBtn.textContent='Copy',900); });
+    aTd.appendChild(copyBtn);
+    tr.appendChild(idxTd); tr.appendChild(tTd); tr.appendChild(cTd); tr.appendChild(aTd);
+    outBody.appendChild(tr);
+  });
+  outTable.style.display = arr.length ? 'table' : 'none';
+}
+
+/* Copy all */
+document.getElementById('copyAll').addEventListener('click', async ()=>{
+  if(!lastResults.length) return alert('Generate some numbers first');
+  const text = lastResults.map(r=>r.tracking).join('\\n');
+  try { await navigator.clipboard.writeText(text); alert('All copied to clipboard'); }
+  catch(e){ prompt('Copy these numbers manually:', text); }
+});
+
+/* CSV download */
+document.getElementById('downloadCSV').addEventListener('click', ()=>{
+  if(!lastResults.length) return alert('Generate some numbers first');
+  let csv = 'tracking,carrier\\n' + lastResults.map(r=>`"${r.tracking}","${r.carrier}"`).join('\\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'dummy_tracking.csv'; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); },500);
+});
+
+/* generate on load */
+document.getElementById('genBtn').click();
+</script>
+</body>
+</html>
